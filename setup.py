@@ -85,7 +85,7 @@ class CMakeBuild(build_ext):
 
 setup(
     name="temporal-negative_edge-sampler",
-    version="0.1.0",
+    version=read_version_number(),
     author="Ashfaq Salehin",
     author_email="ashfaq.salehin1701@gmail.com",
     description="Fast temporal negative edge sampler for graph neural networks",
