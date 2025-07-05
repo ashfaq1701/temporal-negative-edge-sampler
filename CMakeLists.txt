@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.30)
+cmake_minimum_required(VERSION 3.24p)
 project(temporal_negative_edge_sampler)
 
 set(CMAKE_CXX_STANDARD 20)
