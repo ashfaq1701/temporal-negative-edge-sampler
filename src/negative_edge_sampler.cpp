@@ -59,7 +59,7 @@ std::pair<py::array_t<int>, py::array_t<int>> collect_all_negatives_by_timestamp
 }
 
 
-PYBIND11_MODULE(negative_edge_sampler, m) {
+PYBIND11_MODULE(temporal_negative_edge_sampler, m) {
     m.doc() = "Fast temporal negative edge sampler";
 
     m.def("collect_all_negatives_by_timestamp",
