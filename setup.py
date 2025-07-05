@@ -90,7 +90,7 @@ setup(
     author_email="ashfaq.salehin1701@gmail.com",
     description="Fast temporal negative edge sampler for graph neural networks",
     long_description="A high-performance C++ implementation of temporal negative edge sampling with Python bindings.",
-    ext_modules=[CMakeExtension('negative_edge_sampler')],
+    ext_modules=[CMakeExtension('temporal_negative_edge_sampler')],
     cmdclass={"build_ext": CMakeBuild},
     zip_safe=False,
     python_requires=">=3.8",
