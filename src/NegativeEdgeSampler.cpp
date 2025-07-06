@@ -38,6 +38,17 @@ std::pair<std::vector<int>, std::vector<int>> NegativeEdgeSampler::sample_negati
         }
     });
 
+    tbb::concurrent_unordered_map<int, tbb::concurrent_unordered_set<int>> current_adj;
+    tbb::parallel_for(static_cast<size_t>(0), batch_size, [&](const size_t i) {
+        const int src = batch_sources[i];
+        const int tgt = batch_targets[i];
+
+        current_adj[src].insert(tgt);
+        if (!is_directed) {
+            current_adj[tgt].insert(src);
+        }
+    });
+
     // === Preallocate output arrays ===
     std::vector<int> neg_sources(batch_size * num_negatives_per_positive);
     std::vector<int> neg_targets(batch_size * num_negatives_per_positive);
@@ -52,9 +63,13 @@ std::pair<std::vector<int>, std::vector<int>> NegativeEdgeSampler::sample_negati
         if (hist_k > 0) {
             std::vector<int> hist_candidates;
 
-            for (const auto& edge : added_edges) {
-                if (edge.first == src && !current_batch.contains(edge)) {
-                    hist_candidates.push_back(edge.second);
+            if (const auto hist_it = adj.find(src); hist_it != adj.end()) {
+                const auto& current_targets = current_adj[src];
+
+                for (int target : hist_it->second) {
+                    if (!current_targets.contains(target)) {
+                        hist_candidates.push_back(target);
+                    }
                 }
             }
 
@@ -87,7 +102,7 @@ std::pair<std::vector<int>, std::vector<int>> NegativeEdgeSampler::sample_negati
         }
     });
 
-    update_state(current_batch);
+    update_state(current_adj);
     return {neg_sources, neg_targets};
 }
 
@@ -125,15 +140,21 @@ std::vector<int> NegativeEdgeSampler::get_random_candidates(const int src) {
     return {candidates.begin(), candidates.end()};
 }
 
-void NegativeEdgeSampler::update_state(const tbb::concurrent_unordered_set<std::pair<int, int>, PairHash>& current_batch) {
-    tbb::parallel_for_each(current_batch.begin(), current_batch.end(), [&](const auto& edge) {
-        const auto& [src, dst] = edge;
+void NegativeEdgeSampler::update_state(const tbb::concurrent_unordered_map<int, tbb::concurrent_unordered_set<int>>& current_adj) {
+    tbb::parallel_for_each(current_adj.begin(), current_adj.end(), [&](const auto& adj_entry) {
+        const auto& [src, targets] = adj_entry;
 
-        added_edges.insert(edge);
+        // Add the source node
         added_nodes.insert(src);
-        added_nodes.insert(dst);
 
-        adj[src].insert(dst);
+        // Process all targets for this source
+        for (int dst : targets) {
+            // Add target node
+            added_nodes.insert(dst);
+
+            // Update adjacency list
+            adj[src].insert(dst);
+        }
     });
 }
 

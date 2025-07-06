@@ -31,11 +31,10 @@ class NegativeEdgeSampler {
     bool is_directed;
     tbb::concurrent_unordered_set<int> all_nodes;
     tbb::concurrent_unordered_set<int> added_nodes;
-    tbb::concurrent_unordered_set<std::pair<int, int>, PairHash> added_edges;
     tbb::concurrent_unordered_map<int, tbb::concurrent_unordered_set<int>> adj;
 
     std::vector<int> get_random_candidates(int src);
-    void update_state(const tbb::concurrent_unordered_set<std::pair<int, int>, PairHash>& current_batch);
+    void update_state(const tbb::concurrent_unordered_map<int, tbb::concurrent_unordered_set<int>>& current_adj);
 
 public:
     NegativeEdgeSampler(const std::unordered_set<int>& all_node_ids, bool is_directed);
