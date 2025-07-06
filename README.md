@@ -41,6 +41,8 @@ Collects negative edges for temporal graph sampling, processing edges grouped by
 
 #### **Signature**
 ```python
+from temporal_negative_edge_sampler import collect_all_negatives_by_timestamp
+
 collect_all_negatives_by_timestamp(
     sources: np.ndarray,
     targets: np.ndarray,
