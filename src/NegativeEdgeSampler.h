@@ -33,7 +33,7 @@ class NegativeEdgeSampler {
     tbb::concurrent_unordered_set<int> added_nodes;
     tbb::concurrent_unordered_map<int, tbb::concurrent_unordered_set<int>> adj;
 
-    std::vector<int> get_random_candidates(int src);
+    std::vector<int> get_random_candidates(int src, const tbb::concurrent_unordered_map<int, tbb::concurrent_unordered_set<int>>& current_adj);
     void update_state(const tbb::concurrent_unordered_map<int, tbb::concurrent_unordered_set<int>>& current_adj);
 
 public:

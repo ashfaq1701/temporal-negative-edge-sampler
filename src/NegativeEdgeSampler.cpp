@@ -74,7 +74,7 @@ std::pair<std::vector<int>, std::vector<int>> NegativeEdgeSampler::sample_negati
             }
 
             if (hist_candidates.empty()) {
-                hist_candidates = get_random_candidates(src);
+                hist_candidates = get_random_candidates(src, current_adj);
             }
 
             if (hist_candidates.empty()) {
@@ -90,7 +90,7 @@ std::pair<std::vector<int>, std::vector<int>> NegativeEdgeSampler::sample_negati
 
         // === Random negatives ===
         if (rand_k > 0) {
-            const std::vector<int> rand_candidates = get_random_candidates(src);
+            const std::vector<int> rand_candidates = get_random_candidates(src, current_adj);
 
             if (rand_candidates.empty()) {
                 std::cout << "Could not found candidates for random negatives. Source " << src << "Timestamp " << batch_timestamp << std::endl;
@@ -115,10 +115,14 @@ std::pair<std::vector<int>, std::vector<int>> NegativeEdgeSampler::sample_negati
     return {neg_sources, neg_targets};
 }
 
-std::vector<int> NegativeEdgeSampler::get_random_candidates(const int src) {
+std::vector<int> NegativeEdgeSampler::get_random_candidates(const int src, const tbb::concurrent_unordered_map<int, tbb::concurrent_unordered_set<int>>& current_adj) {
     // Use a dummy reference if src not in adj
     static const tbb::concurrent_unordered_set<int> dummy_set;
     const auto& neighbors = adj.contains(src) ? adj[src] : dummy_set;
+
+    const auto current_it = current_adj.find(src);
+    const auto& current_batch_neighbors = (current_it != current_adj.end()) ? current_it->second : dummy_set;
+
 
     tbb::concurrent_vector<int> candidates;
 
@@ -126,7 +130,7 @@ std::vector<int> NegativeEdgeSampler::get_random_candidates(const int src) {
     const std::vector<int> all_nodes_vec(all_nodes.begin(), all_nodes.end());
 
     tbb::parallel_for(static_cast<size_t>(0), added_nodes_vec.size(), [&](const size_t i) {
-        if (const int node = added_nodes_vec[i]; node != src && !neighbors.contains(node)) {
+        if (const int node = added_nodes_vec[i]; node != src && !neighbors.contains(node) && !current_batch_neighbors.contains(node)) {
             candidates.push_back(node);
         }
     });
@@ -140,7 +144,7 @@ std::vector<int> NegativeEdgeSampler::get_random_candidates(const int src) {
         }
 
         tbb::parallel_for(static_cast<size_t>(0), all_nodes_vec.size(), [&](const size_t i) {
-            if (const int node = all_nodes_vec[i]; node != src) {
+            if (const int node = all_nodes_vec[i]; node != src && !current_batch_neighbors.contains(node)) {
                 candidates.push_back(node);
             }
         });
