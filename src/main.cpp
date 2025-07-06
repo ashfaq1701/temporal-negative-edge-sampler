@@ -44,7 +44,7 @@ int main() {
         }
 
         auto [neg_sources, neg_targets] =
-            sampler.sample_negative_edges_per_batch(sources, targets, num_negatives, hist_pct);
+            sampler.sample_negative_edges_per_batch(sources, targets, ts, num_negatives, hist_pct);
 
         std::cout << "\n=== Timestamp: " << ts << " ===" << std::endl;
         for (size_t i = 0; i < neg_sources.size(); ++i) {
