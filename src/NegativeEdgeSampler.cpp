@@ -20,7 +20,9 @@ std::pair<std::vector<int>, std::vector<int>> NegativeEdgeSampler::sample_negati
     const int num_negatives_per_positive,
     const double historical_negative_percentage) {
 
-    std::cout << "Processing batch for timestamp " << batch_timestamp << std::endl;
+    if (is_debug_enabled()) {
+        std::cout << "Processing batch for timestamp " << batch_timestamp << std::endl;
+    }
 
     const int hist_k = static_cast<int>(num_negatives_per_positive * historical_negative_percentage);
     const int rand_k = num_negatives_per_positive - hist_k;

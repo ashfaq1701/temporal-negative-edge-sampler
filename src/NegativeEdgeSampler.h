@@ -8,6 +8,17 @@
 #include <unordered_set>
 #include <vector>
 
+inline bool is_debug_enabled() {
+    static bool debug = []() {
+        const char* env = std::getenv("DEBUG_MODE");
+        if (!env) return false;
+
+        std::string value(env);
+        return value == "1" || value == "true" || value == "TRUE";
+    }();
+    return debug;
+}
+
 struct PairHash {
     std::size_t operator()(const std::pair<int, int>& p) const {
         std::size_t seed = std::hash<int>{}(p.first);
