@@ -77,6 +77,10 @@ std::pair<std::vector<int>, std::vector<int>> NegativeEdgeSampler::sample_negati
                 hist_candidates = get_random_candidates(src);
             }
 
+            if (hist_candidates.empty()) {
+                std::cout << "Could not found candidates for historical negatives. Source " << src << "Timestamp " << batch_timestamp << std::endl;
+            }
+
             std::uniform_int_distribution<> dist(0, static_cast<int>(hist_candidates.size()) - 1);
             for (int j = 0; j < hist_k; ++j) {
                 const int idx = dist(rng);
@@ -87,6 +91,11 @@ std::pair<std::vector<int>, std::vector<int>> NegativeEdgeSampler::sample_negati
         // === Random negatives ===
         if (rand_k > 0) {
             const std::vector<int> rand_candidates = get_random_candidates(src);
+
+            if (rand_candidates.empty()) {
+                std::cout << "Could not found candidates for random negatives. Source " << src << "Timestamp " << batch_timestamp << std::endl;
+            }
+
             std::uniform_int_distribution<> dist(0, static_cast<int>(rand_candidates.size()) - 1);
             for (int j = 0; j < rand_k; ++j) {
                 const int idx = dist(rng);
@@ -126,7 +135,7 @@ std::vector<int> NegativeEdgeSampler::get_random_candidates(const int src) {
     if (candidates.empty()) {
         if (added_nodes.empty()) {
             std::cout << "First-ever batch — fallback used.\n";
-        } else if (candidates.empty()) {
+        } else {
             std::cout << "src=" << src << " connected to all known nodes — fallback used.\n";
         }
 
