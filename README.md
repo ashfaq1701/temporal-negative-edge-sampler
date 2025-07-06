@@ -67,7 +67,7 @@ Farimah Poursafaei, Shenyang Huang, Kris Pelrine, Reihaneh Rabbany
 In NeurIPS 2022 Datasets and Benchmarks Track.  
 https://arxiv.org/pdf/2207.10128
 
-Huang et al. (2023)
+Huang et al. (2023)  
 **Temporal Graph Benchmark for Machine Learning on Temporal Graphs**  
 Shenyang Huang, Farimah Poursafaei, Jacob Danovitch, Matthias Fey, Weihua Hu, Emanuele Rossi, Jure Leskovec, Michael Bronstein, Guillaume Rabusseau, Reihaneh Rabbany  
 In NeurIPS 2023 Datasets and Benchmarks Track.  
