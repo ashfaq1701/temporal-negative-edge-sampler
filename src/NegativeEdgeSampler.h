@@ -32,6 +32,7 @@ public:
     std::pair<std::vector<int>, std::vector<int>> sample_negative_edges_per_batch(
         const std::vector<int>& batch_sources,
         const std::vector<int>& batch_targets,
+        int64_t batch_timestamp,
         int num_negatives_per_positive,
         double historical_negative_percentage
     );

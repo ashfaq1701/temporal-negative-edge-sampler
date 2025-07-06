@@ -16,8 +16,11 @@ NegativeEdgeSampler::NegativeEdgeSampler(const std::unordered_set<int>& all_node
 std::pair<std::vector<int>, std::vector<int>> NegativeEdgeSampler::sample_negative_edges_per_batch(
     const std::vector<int>& batch_sources,
     const std::vector<int>& batch_targets,
+    const int64_t batch_timestamp,
     const int num_negatives_per_positive,
     const double historical_negative_percentage) {
+
+    std::cout << "Processing batch for timestamp " << batch_timestamp << std::endl;
 
     const int hist_k = static_cast<int>(num_negatives_per_positive * historical_negative_percentage);
     const int rand_k = num_negatives_per_positive - hist_k;
@@ -158,7 +161,7 @@ std::pair<std::vector<int>, std::vector<int>> collect_all_negatives_by_timestamp
     std::vector<int> neg_targets;
 
     // 4. Process each timestamp batch
-    for (const auto& batch : ts_batches | std::views::values) {
+    for (const auto& [batch_timestamp, batch] : ts_batches) {
         std::vector<int> batch_srcs, batch_dsts;
         for (const auto&[src, tgt] : batch) {
             batch_srcs.push_back(src);
@@ -166,7 +169,12 @@ std::pair<std::vector<int>, std::vector<int>> collect_all_negatives_by_timestamp
         }
 
         auto [batch_negs_srcs, batch_negs_dsts] =
-            sampler.sample_negative_edges_per_batch(batch_srcs, batch_dsts, num_negatives_per_positive, historical_negative_percentage);
+            sampler.sample_negative_edges_per_batch(
+                batch_srcs,
+                batch_dsts,
+                batch_timestamp,
+                num_negatives_per_positive,
+                historical_negative_percentage);
 
         neg_sources.insert(neg_sources.end(), batch_negs_srcs.begin(), batch_negs_srcs.end());
         neg_targets.insert(neg_targets.end(), batch_negs_dsts.begin(), batch_negs_dsts.end());
