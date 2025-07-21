@@ -42,18 +42,8 @@ std::pair<py::array_t<int>, py::array_t<int>> collect_all_negatives_by_timestamp
         historical_negative_percentage
     );
 
-    // Convert results back to numpy arrays
-    auto neg_sources_array = py::array_t<int>(
-        static_cast<long>(neg_sources.size()),
-        neg_sources.data(),
-        py::cast(neg_sources)  // Ensure proper lifetime management
-    );
-
-    auto neg_targets_array = py::array_t<int>(
-        static_cast<long>(neg_targets.size()),
-        neg_targets.data(),
-        py::cast(neg_targets)  // Ensure proper lifetime management
-    );
+    auto neg_sources_array = py::cast(neg_sources);
+    auto neg_targets_array = py::cast(neg_targets);
 
     return std::make_pair(neg_sources_array, neg_targets_array);
 }
