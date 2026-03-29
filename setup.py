@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 
+
 def read_version_number():
     with open('version_number.txt', 'r') as file:
         version_number = file.readline()
@@ -63,7 +64,7 @@ class CMakeBuild(build_ext):
         if python_library:
             print(f"Python library: {python_library}")
 
-        build_args = ['--config', build_type]
+        build_args = ['--config', build_type, '--target', ext.name]
         os.makedirs(self.build_temp, exist_ok=True)
 
         try:
@@ -94,6 +95,9 @@ setup(
     url="https://github.com/ashfaq1701/temporal-negative-edge-sampler",
     ext_modules=[CMakeExtension('temporal_negative_edge_sampler')],
     cmdclass={"build_ext": CMakeBuild},
+    package_data={
+        'temporal_negative_edge_sampler': ['*.so'],
+    },
     zip_safe=False,
     python_requires=">=3.8",
     install_requires=["numpy>=1.19.0"],

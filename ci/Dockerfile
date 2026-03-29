@@ -21,6 +21,15 @@ RUN apt-get update && \
         zip && \
     rm -rf /var/lib/apt/lists/*
 
+# Install vcpkg and gtest
+RUN git clone https://github.com/microsoft/vcpkg.git /opt/vcpkg && \
+    /opt/vcpkg/bootstrap-vcpkg.sh -disableMetrics && \
+    /opt/vcpkg/vcpkg install gtest:x64-linux
+
+ENV VCPKG_ROOT="/opt/vcpkg"
+ENV CMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+ENV PATH="$VCPKG_ROOT:$PATH"
+
 # Create a persistent virtual environment
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.24p)
+cmake_minimum_required(VERSION 3.24)
 project(temporal_negative_edge_sampler)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -32,15 +32,8 @@ find_package(pybind11 REQUIRED)
 find_package(TBB REQUIRED)
 
 set(SRC_FILES
-        ${CMAKE_SOURCE_DIR}/src/NegativeEdgeSampler.cpp
+        ${CMAKE_SOURCE_DIR}/temporal_negative_edge_sampler/src/NegativeEdgeSampler.cpp
 )
 
-pybind11_add_module(temporal_negative_edge_sampler
-        src/negative_edge_sampler.cpp
-        ${SRC_FILES}
-)
-target_compile_features(temporal_negative_edge_sampler PRIVATE cxx_std_20)
-target_link_libraries(temporal_negative_edge_sampler PRIVATE TBB::tbb)
-
-add_executable(temporal_negative_edge_sampler_test src/main.cpp ${SRC_FILES})
-target_link_libraries(temporal_negative_edge_sampler_test PRIVATE TBB::tbb)
+add_subdirectory(temporal_negative_edge_sampler/py_interface)
+add_subdirectory(temporal_negative_edge_sampler/tests)
