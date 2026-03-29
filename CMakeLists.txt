@@ -35,5 +35,10 @@ set(SRC_FILES
         ${CMAKE_SOURCE_DIR}/temporal_negative_edge_sampler/src/NegativeEdgeSampler.cpp
 )
 
+option(BUILD_TESTS "Build C++ tests" ON)
+
 add_subdirectory(temporal_negative_edge_sampler/py_interface)
-add_subdirectory(temporal_negative_edge_sampler/tests)
+
+if(BUILD_TESTS)
+    add_subdirectory(temporal_negative_edge_sampler/tests)
+endif()
