@@ -2,7 +2,6 @@
 
 #include <iostream>
 #include <map>
-#include <ranges>
 #include <tbb/parallel_for_each.h>
 
 NegativeEdgeSampler::NegativeEdgeSampler(const std::unordered_set<int>& all_node_ids, const bool is_directed)
@@ -67,7 +66,7 @@ std::pair<std::vector<int>, std::vector<int>> NegativeEdgeSampler::sample_negati
                 const auto& current_targets = current_adj[src];
 
                 for (int target : hist_it->second) {
-                    if (!current_targets.contains(target)) {
+                    if (current_targets.count(target) == 0) {
                         hist_candidates.push_back(target);
                     }
                 }
@@ -118,7 +117,7 @@ std::pair<std::vector<int>, std::vector<int>> NegativeEdgeSampler::sample_negati
 std::vector<int> NegativeEdgeSampler::get_random_candidates(const int src, const tbb::concurrent_unordered_map<int, tbb::concurrent_unordered_set<int>>& current_adj) {
     // Use a dummy reference if src not in adj
     static const tbb::concurrent_unordered_set<int> dummy_set;
-    const auto& neighbors = adj.contains(src) ? adj[src] : dummy_set;
+    const auto& neighbors = (adj.count(src) > 0) ? adj[src] : dummy_set;
 
     const auto current_it = current_adj.find(src);
     const auto& current_batch_neighbors = (current_it != current_adj.end()) ? current_it->second : dummy_set;
@@ -130,7 +129,7 @@ std::vector<int> NegativeEdgeSampler::get_random_candidates(const int src, const
     const std::vector<int> all_nodes_vec(all_nodes.begin(), all_nodes.end());
 
     tbb::parallel_for(static_cast<size_t>(0), added_nodes_vec.size(), [&](const size_t i) {
-        if (const int node = added_nodes_vec[i]; node != src && !neighbors.contains(node) && !current_batch_neighbors.contains(node)) {
+        if (const int node = added_nodes_vec[i]; node != src && neighbors.count(node) == 0 && current_batch_neighbors.count(node) == 0) {
             candidates.push_back(node);
         }
     });
@@ -144,7 +143,7 @@ std::vector<int> NegativeEdgeSampler::get_random_candidates(const int src, const
         }
 
         tbb::parallel_for(static_cast<size_t>(0), all_nodes_vec.size(), [&](const size_t i) {
-            if (const int node = all_nodes_vec[i]; node != src && !current_batch_neighbors.contains(node)) {
+            if (const int node = all_nodes_vec[i]; node != src && current_batch_neighbors.count(node) == 0) {
                 candidates.push_back(node);
             }
         });
