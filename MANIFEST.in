@@ -1,2 +1,2 @@
 include README.md
-include *.so
+include temporal_negative_edge_sampler/*.so
