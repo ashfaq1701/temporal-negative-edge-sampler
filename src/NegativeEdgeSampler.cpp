@@ -76,14 +76,11 @@ std::pair<std::vector<int>, std::vector<int>> NegativeEdgeSampler::sample_negati
                 hist_candidates = get_random_candidates(src, current_adj);
             }
 
-            if (hist_candidates.empty()) {
-                std::cout << "Could not found candidates for historical negatives. Source " << src << "Timestamp " << batch_timestamp << std::endl;
-            }
-
-            std::uniform_int_distribution<> dist(0, static_cast<int>(hist_candidates.size()) - 1);
-            for (int j = 0; j < hist_k; ++j) {
-                const int idx = dist(rng);
-                negs.push_back(hist_candidates[idx]);
+            if (!hist_candidates.empty()) {
+                std::uniform_int_distribution<> dist(0, static_cast<int>(hist_candidates.size()) - 1);
+                for (int j = 0; j < hist_k; ++j) {
+                    negs.push_back(hist_candidates[dist(rng)]);
+                }
             }
         }
 
@@ -91,22 +88,20 @@ std::pair<std::vector<int>, std::vector<int>> NegativeEdgeSampler::sample_negati
         if (rand_k > 0) {
             const std::vector<int> rand_candidates = get_random_candidates(src, current_adj);
 
-            if (rand_candidates.empty()) {
-                std::cout << "Could not found candidates for random negatives. Source " << src << "Timestamp " << batch_timestamp << std::endl;
-            }
-
-            std::uniform_int_distribution<> dist(0, static_cast<int>(rand_candidates.size()) - 1);
-            for (int j = 0; j < rand_k; ++j) {
-                const int idx = dist(rng);
-                negs.push_back(rand_candidates[idx]);
+            if (!rand_candidates.empty()) {
+                std::uniform_int_distribution<> dist(0, static_cast<int>(rand_candidates.size()) - 1);
+                for (int j = 0; j < rand_k; ++j) {
+                    negs.push_back(rand_candidates[dist(rng)]);
+                }
             }
         }
 
         // === Fill preallocated output ===
         const size_t base = i * num_negatives_per_positive;
-        for (int j = 0; j < num_negatives_per_positive; ++j) {
+        const size_t negs_count = negs.size();
+        for (size_t j = 0; j < static_cast<size_t>(num_negatives_per_positive); ++j) {
             neg_sources[base + j] = src;
-            neg_targets[base + j] = negs[j];
+            neg_targets[base + j] = (j < negs_count) ? negs[j] : -1;
         }
     });
 

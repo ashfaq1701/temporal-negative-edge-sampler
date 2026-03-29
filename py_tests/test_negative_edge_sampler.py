@@ -37,7 +37,8 @@ class TestBasicOutput:
             sources, targets, timestamps, is_directed=False, num_negatives_per_positive=k
         )
         # Each positive edge produces k negatives; sources should all be valid nodes
-        all_nodes = set(sources.tolist()) | set(targets.tolist())
+        # -1 is a sentinel for when no candidates are available
+        all_nodes = set(sources.tolist()) | set(targets.tolist()) | {-1}
         for s in neg_src:
             assert s in all_nodes
         for t in neg_tgt:
