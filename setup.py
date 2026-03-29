@@ -42,6 +42,7 @@ class CMakeBuild(build_ext):
         cmake_args = [
             f'-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={extdir}',
             f'-DCMAKE_BUILD_TYPE={build_type}',
+            '-DBUILD_TESTS=OFF',
         ]
 
         # Use environment-defined Python paths if available
