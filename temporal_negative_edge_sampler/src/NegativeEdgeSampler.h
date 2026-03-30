@@ -52,7 +52,7 @@ class NegativeEdgeSampler {
     // --- Internal helpers ---
 
     // O(1) average lookup via node_to_index_. Returns index if found, -1 otherwise.
-    int node_index(int node_id) const;
+    [[nodiscard]] int node_index(int node_id) const;
 
     // Merge new sorted+deduped nodes into all_nodes_sorted_.
     // Extends history_neighbors_ and batch_neighbors_ to match new size,
@@ -79,7 +79,7 @@ class NegativeEdgeSampler {
 
     // Map a virtual index (into the complement set) to an actual node index,
     // skipping over sorted excluded positions in all_nodes_sorted_.
-    int skip_over(int raw_index, const std::vector<int>& exclude_positions_sorted) const;
+    static int skip_over(int raw_index, const std::vector<int>& exclude_positions_sorted) ;
 
 public:
     explicit NegativeEdgeSampler(
@@ -103,9 +103,9 @@ public:
     NegativeSampleResult sample_negatives();
 
     // --- Getters ---
-    size_t get_node_count() const;
-    size_t get_edge_count() const;
-    size_t get_batch_count() const;
+    [[nodiscard]] size_t get_node_count() const;
+    [[nodiscard]] size_t get_edge_count() const;
+    [[nodiscard]] size_t get_batch_count() const;
 };
 
 #endif // NEGATIVEEDGESAMPLER_H
