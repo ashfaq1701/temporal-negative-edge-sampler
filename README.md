@@ -35,31 +35,77 @@ While the algorithm described above is correct and benchmark-aligned, it is comp
 
 ## API
 
-### `collect_all_negatives_by_timestamp`
+The Python package exposes a single class: `NegativeEdgeSampler`.
 
-Collects negative edges for temporal graph sampling, processing edges grouped by timestamp.
+### `NegativeEdgeSampler`
 
-#### **Signature**
+#### **Constructor**
 ```python
-from temporal_negative_edge_sampler import collect_all_negatives_by_timestamp
+from temporal_negative_edge_sampler import NegativeEdgeSampler
 
-collect_all_negatives_by_timestamp(
-    sources: np.ndarray,
-    targets: np.ndarray,
-    timestamps: np.ndarray,
+sampler = NegativeEdgeSampler(
     is_directed: bool,
     num_negatives_per_positive: int,
-    historical_negative_percentage: float = 0.5
-) -> Tuple[np.ndarray, np.ndarray]
+    historical_negative_percentage: float = 0.5,
+    seed: int = 0,
+)
 ```
 
-#### **Parameters**
-- **`sources`** (`np.ndarray`): Array of source node IDs
-- **`targets`** (`np.ndarray`): Array of target node IDs
-- **`timestamps`** (`np.ndarray`): Array of timestamps for each edge
-- **`is_directed`** (`bool`): Whether the graph is directed
-- **`num_negatives_per_positive`** (`int`): Number of negative edges to sample per positive edge
-- **`historical_negative_percentage`** (`float`, optional): Ratio of historical vs random negatives (default: 0.5)
+#### **Constructor parameters**
+- **`is_directed`** (`bool`): Whether edges are treated as directed.
+- **`num_negatives_per_positive`** (`int`): Number of negative edges to sample per positive edge in each batch.
+- **`historical_negative_percentage`** (`float`, optional): Target fraction of negatives sampled from historical neighbors (default: `0.5`).
+- **`seed`** (`int`, optional): RNG seed. `0` uses `std::random_device` (default: `0`).
+
+### Methods
+
+#### `add_batch(sources, targets, timestamps) -> None`
+Adds one timestamp-consistent batch of positive edges.
+
+- `sources`: 1D `np.ndarray` of `int32`
+- `targets`: 1D `np.ndarray` of `int32`
+- `timestamps`: 1D `np.ndarray` of `int64`
+
+All three arrays must be 1-dimensional and have the same length.
+
+#### `sample_negatives() -> dict`
+Samples negatives for the most recently added batch and then merges that batch into history.
+
+Returns a dictionary with:
+- `sources` (`np.ndarray[int32]`): repeated positive sources, length = `batch_size * num_negatives_per_positive`
+- `targets` (`np.ndarray[int32]`): sampled negative targets (`-1` sentinel is used when not enough valid negatives exist)
+- `num_historical_actual` (`int`): actual number of historical negatives produced
+- `num_random_actual` (`int`): actual number of random negatives produced
+
+#### Getters
+- `get_node_count() -> int`: number of unique nodes seen so far.
+- `get_edge_count() -> int`: number of positive edges ingested so far.
+- `get_batch_count() -> int`: number of processed batches.
+
+### Minimal example
+```python
+import numpy as np
+from temporal_negative_edge_sampler import NegativeEdgeSampler
+
+sampler = NegativeEdgeSampler(
+    is_directed=False,
+    num_negatives_per_positive=2,
+    historical_negative_percentage=0.5,
+    seed=42,
+)
+
+# Batch 1
+sampler.add_batch(
+    sources=np.array([0, 1], dtype=np.int32),
+    targets=np.array([1, 2], dtype=np.int32),
+    timestamps=np.array([100, 100], dtype=np.int64),
+)
+negatives = sampler.sample_negatives()
+
+print(negatives["sources"])
+print(negatives["targets"])
+print(negatives["num_historical_actual"], negatives["num_random_actual"])
+```
 
 ## References:
 
