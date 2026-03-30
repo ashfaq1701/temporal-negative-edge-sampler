@@ -35,11 +35,8 @@ NegativeEdgeSampler::NegativeEdgeSampler(
 // ============================================================================
 
 int NegativeEdgeSampler::node_index(const int node_id) const {
-    auto it = std::lower_bound(all_nodes_sorted_.begin(), all_nodes_sorted_.end(), node_id);
-    if (it != all_nodes_sorted_.end() && *it == node_id) {
-        return static_cast<int>(it - all_nodes_sorted_.begin());
-    }
-    return -1;
+    const auto it = node_to_index_.find(node_id);
+    return (it != node_to_index_.end()) ? it->second : -1;
 }
 
 void NegativeEdgeSampler::merge_new_nodes(const std::vector<int>& new_nodes_sorted) {
@@ -76,6 +73,13 @@ void NegativeEdgeSampler::merge_new_nodes(const std::vector<int>& new_nodes_sort
     all_nodes_sorted_ = std::move(merged);
     history_neighbors_ = std::move(new_history);
     batch_neighbors_ = std::move(new_batch);
+
+    // Rebuild authoritative node -> index mapping.
+    node_to_index_.clear();
+    node_to_index_.reserve(all_nodes_sorted_.size());
+    for (size_t i = 0; i < all_nodes_sorted_.size(); ++i) {
+        node_to_index_[all_nodes_sorted_[i]] = static_cast<int>(i);
+    }
 }
 
 void NegativeEdgeSampler::build_batch_neighbors() {

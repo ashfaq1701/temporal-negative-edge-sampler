@@ -4,6 +4,7 @@
 #include <vector>
 #include <cstdint>
 #include <random>
+#include <unordered_map>
 
 // Result returned by sample_negatives()
 struct NegativeSampleResult {
@@ -22,6 +23,9 @@ class NegativeEdgeSampler {
     // --- Accumulated state (grows with each add_batch) ---
     // Sorted, deduplicated list of all node IDs seen so far.
     std::vector<int> all_nodes_sorted_;
+
+    // Fast lookup: node ID -> index into all_nodes_sorted_.
+    std::unordered_map<int, int> node_to_index_;
 
     // Per-node neighbor lists, indexed by position in all_nodes_sorted_.
     // Each inner vector is sorted and deduplicated, containing node IDs (not indices).
@@ -46,7 +50,7 @@ class NegativeEdgeSampler {
 
     // --- Internal helpers ---
 
-    // Binary search in all_nodes_sorted_. Returns index if found, -1 otherwise.
+    // O(1) average lookup via node_to_index_. Returns index if found, -1 otherwise.
     int node_index(int node_id) const;
 
     // Merge new sorted+deduped nodes into all_nodes_sorted_.
