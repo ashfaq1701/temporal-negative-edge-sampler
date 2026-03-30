@@ -29,7 +29,7 @@ set(PYBIND11_PYTHON_VERSION ${DETECTED_PYTHON_VERSION} CACHE STRING "Python vers
 message(STATUS "Setting pybind11 Python version to: ${PYBIND11_PYTHON_VERSION}")
 
 find_package(pybind11 REQUIRED)
-find_package(TBB REQUIRED)
+find_package(OpenMP REQUIRED)
 
 set(SRC_FILES
         ${CMAKE_SOURCE_DIR}/temporal_negative_edge_sampler/src/NegativeEdgeSampler.cpp

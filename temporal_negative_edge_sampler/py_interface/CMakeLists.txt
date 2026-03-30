@@ -9,4 +9,4 @@ target_include_directories(temporal_negative_edge_sampler PRIVATE
         ${CMAKE_SOURCE_DIR}/temporal_negative_edge_sampler/src
 )
 
-target_link_libraries(temporal_negative_edge_sampler PRIVATE TBB::tbb)
+target_link_libraries(temporal_negative_edge_sampler PRIVATE OpenMP::OpenMP_CXX)
