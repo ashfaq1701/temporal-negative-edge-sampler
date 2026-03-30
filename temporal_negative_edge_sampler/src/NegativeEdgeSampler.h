@@ -28,7 +28,8 @@ class NegativeEdgeSampler {
     std::unordered_map<int, int> node_to_index_;
 
     // Per-node neighbor lists, indexed by position in all_nodes_sorted_.
-    // Each inner vector is sorted and deduplicated, containing node IDs (not indices).
+    // All neighbor lists store node INDICES (not node IDs).
+    // Must always remain sorted and deduplicated.
     // Stores cumulative adjacency from all previous batches (not including current batch).
     std::vector<std::vector<int>> history_neighbors_;
 
@@ -76,7 +77,7 @@ class NegativeEdgeSampler {
     // Returns vector of node IDs (may be shorter than count if not enough candidates).
     std::vector<int> sample_historical_negatives(int src_idx, int count, std::mt19937& rng) const;
 
-    // Map a virtual index (into the complement set) to an actual node,
+    // Map a virtual index (into the complement set) to an actual node index,
     // skipping over sorted excluded positions in all_nodes_sorted_.
     int skip_over(int raw_index, const std::vector<int>& exclude_positions_sorted) const;
 

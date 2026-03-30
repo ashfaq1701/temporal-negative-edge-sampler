@@ -97,9 +97,9 @@ void NegativeEdgeSampler::build_batch_neighbors() {
         const int src_idx = node_index(src);
         const int tgt_idx = node_index(tgt);
 
-        batch_neighbors_[src_idx].push_back(tgt);
+        batch_neighbors_[src_idx].push_back(tgt_idx);
         if (!is_directed_) {
-            batch_neighbors_[tgt_idx].push_back(src);
+            batch_neighbors_[tgt_idx].push_back(src_idx);
         }
     }
 
@@ -192,7 +192,7 @@ int NegativeEdgeSampler::skip_over(
         lo = hi;
     }
 
-    return all_nodes_sorted_[adjusted];
+    return adjusted;
 }
 
 // ============================================================================
@@ -204,7 +204,6 @@ std::vector<int> NegativeEdgeSampler::sample_random_negatives(
 
     if (count <= 0) return {};
 
-    const int src_node = all_nodes_sorted_[src_idx];
     const int N = static_cast<int>(all_nodes_sorted_.size());
 
     const auto& hist = history_neighbors_[src_idx];
@@ -218,9 +217,9 @@ std::vector<int> NegativeEdgeSampler::sample_random_negatives(
                    std::back_inserter(combined_exclude));
 
     // Insert self into the sorted exclusion set.
-    auto self_pos = std::lower_bound(combined_exclude.begin(), combined_exclude.end(), src_node);
-    if (self_pos == combined_exclude.end() || *self_pos != src_node) {
-        combined_exclude.insert(self_pos, src_node);
+    auto self_pos = std::lower_bound(combined_exclude.begin(), combined_exclude.end(), src_idx);
+    if (self_pos == combined_exclude.end() || *self_pos != src_idx) {
+        combined_exclude.insert(self_pos, src_idx);
     }
 
     const int d = static_cast<int>(combined_exclude.size());
@@ -230,21 +229,14 @@ std::vector<int> NegativeEdgeSampler::sample_random_negatives(
 
     if (valid_count <= 0) return result;
 
-    // Precompute positions of excluded nodes in all_nodes_sorted_.
-    std::vector<int> exclude_positions;
-    exclude_positions.reserve(d);
-    for (const int node : combined_exclude) {
-        const int idx = node_index(node);
-        if (idx >= 0) {
-            exclude_positions.push_back(idx);
-        }
-    }
+    const std::vector<int>& exclude_positions = combined_exclude;
 
     // Sample with replacement.
     std::uniform_int_distribution<int> dist(0, valid_count - 1);
     for (int j = 0; j < count; ++j) {
         const int raw = dist(rng);
-        result[j] = skip_over(raw, exclude_positions);
+        const int sampled_idx = skip_over(raw, exclude_positions);
+        result[j] = all_nodes_sorted_[sampled_idx];
     }
 
     return result;
@@ -269,7 +261,7 @@ std::vector<int> NegativeEdgeSampler::sample_historical_negatives(
     std::uniform_int_distribution<int> dist(0, static_cast<int>(candidates.size()) - 1);
     std::vector<int> result(count);
     for (int j = 0; j < count; ++j) {
-        result[j] = candidates[dist(rng)];
+        result[j] = all_nodes_sorted_[candidates[dist(rng)]];
     }
 
     return result;
