@@ -1,214 +1,376 @@
 #include "NegativeEdgeSampler.h"
 
-#include <iostream>
-#include <map>
-#include <tbb/parallel_for_each.h>
+#include <algorithm>
+#include <cassert>
+#include <numeric>
 
-NegativeEdgeSampler::NegativeEdgeSampler(const std::unordered_set<int>& all_node_ids, const bool is_directed)
-    : is_directed(is_directed)
-{
-    for (int n : all_node_ids) {
-        all_nodes.insert(n);
-    }
-}
+// ============================================================================
+// Constructor
+// ============================================================================
 
-std::pair<std::vector<int>, std::vector<int>> NegativeEdgeSampler::sample_negative_edges_per_batch(
-    const std::vector<int>& batch_sources,
-    const std::vector<int>& batch_targets,
-    const int64_t batch_timestamp,
-    const int num_negatives_per_positive,
-    const double historical_negative_percentage) {
-
-    if (is_debug_enabled()) {
-        std::cout << "Processing batch for timestamp " << batch_timestamp << std::endl;
-    }
-
-    const int hist_k = static_cast<int>(num_negatives_per_positive * historical_negative_percentage);
-    const int rand_k = num_negatives_per_positive - hist_k;
-
-    const size_t batch_size = batch_sources.size();
-
-    // === Parallel insert current batch edges ===
-    tbb::concurrent_unordered_set<std::pair<int, int>, PairHash> current_batch;
-    tbb::parallel_for(static_cast<size_t>(0), batch_size, [&](const size_t i) {
-        current_batch.insert({batch_sources[i], batch_targets[i]});
-        if (!is_directed) {
-            current_batch.insert({batch_targets[i], batch_sources[i]});
-        }
-    });
-
-    tbb::concurrent_unordered_map<int, tbb::concurrent_unordered_set<int>> current_adj;
-    tbb::parallel_for(static_cast<size_t>(0), batch_size, [&](const size_t i) {
-        const int src = batch_sources[i];
-        const int tgt = batch_targets[i];
-
-        current_adj[src].insert(tgt);
-        if (!is_directed) {
-            current_adj[tgt].insert(src);
-        }
-    });
-
-    // === Preallocate output arrays ===
-    std::vector<int> neg_sources(batch_size * num_negatives_per_positive);
-    std::vector<int> neg_targets(batch_size * num_negatives_per_positive);
-
-    // === Parallel processing ===
-    tbb::parallel_for(static_cast<size_t>(0), batch_size, [&](const size_t i) {
-        thread_local std::mt19937 rng(std::random_device{}());
-        const int src = batch_sources[i];
-        std::vector<int> negs;
-
-        // === Historical negatives ===
-        if (hist_k > 0) {
-            std::vector<int> hist_candidates;
-
-            if (const auto hist_it = adj.find(src); hist_it != adj.end()) {
-                const auto& current_targets = current_adj[src];
-
-                for (int target : hist_it->second) {
-                    if (current_targets.count(target) == 0) {
-                        hist_candidates.push_back(target);
-                    }
-                }
-            }
-
-            if (hist_candidates.empty()) {
-                hist_candidates = get_random_candidates(src, current_adj);
-            }
-
-            if (!hist_candidates.empty()) {
-                std::uniform_int_distribution<> dist(0, static_cast<int>(hist_candidates.size()) - 1);
-                for (int j = 0; j < hist_k; ++j) {
-                    negs.push_back(hist_candidates[dist(rng)]);
-                }
-            }
-        }
-
-        // === Random negatives ===
-        if (rand_k > 0) {
-            const std::vector<int> rand_candidates = get_random_candidates(src, current_adj);
-
-            if (!rand_candidates.empty()) {
-                std::uniform_int_distribution<> dist(0, static_cast<int>(rand_candidates.size()) - 1);
-                for (int j = 0; j < rand_k; ++j) {
-                    negs.push_back(rand_candidates[dist(rng)]);
-                }
-            }
-        }
-
-        // === Fill preallocated output ===
-        const size_t base = i * num_negatives_per_positive;
-        const size_t negs_count = negs.size();
-        for (size_t j = 0; j < static_cast<size_t>(num_negatives_per_positive); ++j) {
-            neg_sources[base + j] = src;
-            neg_targets[base + j] = (j < negs_count) ? negs[j] : -1;
-        }
-    });
-
-    update_state(current_adj);
-    return {neg_sources, neg_targets};
-}
-
-std::vector<int> NegativeEdgeSampler::get_random_candidates(const int src, const tbb::concurrent_unordered_map<int, tbb::concurrent_unordered_set<int>>& current_adj) {
-    // Use a dummy reference if src not in adj
-    static const tbb::concurrent_unordered_set<int> dummy_set;
-    const auto& neighbors = (adj.count(src) > 0) ? adj[src] : dummy_set;
-
-    const auto current_it = current_adj.find(src);
-    const auto& current_batch_neighbors = (current_it != current_adj.end()) ? current_it->second : dummy_set;
-
-
-    tbb::concurrent_vector<int> candidates;
-
-    const std::vector<int> added_nodes_vec(added_nodes.begin(), added_nodes.end());
-    const std::vector<int> all_nodes_vec(all_nodes.begin(), all_nodes.end());
-
-    tbb::parallel_for(static_cast<size_t>(0), added_nodes_vec.size(), [&](const size_t i) {
-        if (const int node = added_nodes_vec[i]; node != src && neighbors.count(node) == 0 && current_batch_neighbors.count(node) == 0) {
-            candidates.push_back(node);
-        }
-    });
-
-    // Fallback to all_nodes if no candidates
-    if (candidates.empty()) {
-        if (added_nodes.empty()) {
-            std::cout << "First-ever batch — fallback used.\n";
-        } else {
-            std::cout << "src=" << src << " connected to all known nodes — fallback used.\n";
-        }
-
-        tbb::parallel_for(static_cast<size_t>(0), all_nodes_vec.size(), [&](const size_t i) {
-            if (const int node = all_nodes_vec[i]; node != src && current_batch_neighbors.count(node) == 0) {
-                candidates.push_back(node);
-            }
-        });
-    }
-
-    return {candidates.begin(), candidates.end()};
-}
-
-void NegativeEdgeSampler::update_state(const tbb::concurrent_unordered_map<int, tbb::concurrent_unordered_set<int>>& current_adj) {
-    tbb::parallel_for_each(current_adj.begin(), current_adj.end(), [&](const auto& adj_entry) {
-        const auto& [src, targets] = adj_entry;
-
-        // Add the source node
-        added_nodes.insert(src);
-
-        // Process all targets for this source
-        for (int dst : targets) {
-            // Add target node
-            added_nodes.insert(dst);
-
-            // Update adjacency list
-            adj[src].insert(dst);
-        }
-    });
-}
-
-std::pair<std::vector<int>, std::vector<int>> collect_all_negatives_by_timestamp(
-    const std::vector<int>& sources,
-    const std::vector<int>& targets,
-    const std::vector<int64_t>& timestamps,
+NegativeEdgeSampler::NegativeEdgeSampler(
     const bool is_directed,
     const int num_negatives_per_positive,
-    const double historical_negative_percentage
-) {
-    // 1. Extract all unique nodes
-    std::unordered_set<int> all_nodes;
-    for (int node : sources) all_nodes.insert(node);
-    for (int node : targets) all_nodes.insert(node);
+    const double historical_negative_percentage,
+    const unsigned int seed)
+    : is_directed_(is_directed),
+      num_negatives_per_positive_(num_negatives_per_positive),
+      historical_negative_percentage_(historical_negative_percentage),
+      total_edges_(0),
+      batch_count_(0)
+{
+    if (seed == 0) {
+        std::random_device rd;
+        rng_.seed(rd());
+    } else {
+        rng_.seed(seed);
+    }
+}
 
-    // 2. Group edges by timestamp
-    std::map<int64_t, std::vector<std::pair<int, int>>> ts_batches;
-    for (size_t i = 0; i < sources.size(); ++i) {
-        ts_batches[timestamps[i]].emplace_back(sources[i], targets[i]);
+// ============================================================================
+// Internal helpers
+// ============================================================================
+
+int NegativeEdgeSampler::node_index(const int node_id) const {
+    auto it = std::lower_bound(all_nodes_sorted_.begin(), all_nodes_sorted_.end(), node_id);
+    if (it != all_nodes_sorted_.end() && *it == node_id) {
+        return static_cast<int>(it - all_nodes_sorted_.begin());
+    }
+    return -1;
+}
+
+void NegativeEdgeSampler::merge_new_nodes(const std::vector<int>& new_nodes_sorted) {
+    if (new_nodes_sorted.empty()) return;
+
+    // Compute sorted union of all_nodes_sorted_ and new_nodes_sorted.
+    std::vector<int> merged;
+    merged.reserve(all_nodes_sorted_.size() + new_nodes_sorted.size());
+    std::set_union(
+        all_nodes_sorted_.begin(), all_nodes_sorted_.end(),
+        new_nodes_sorted.begin(), new_nodes_sorted.end(),
+        std::back_inserter(merged));
+
+    if (merged.size() == all_nodes_sorted_.size()) {
+        // No new nodes were added.
+        return;
     }
 
-    // 3. Initialize the sampler
-    NegativeEdgeSampler sampler(all_nodes, is_directed);
+    // Build new history_neighbors and batch_neighbors with the merged size.
+    // Copy existing history entries to their new positions.
+    const size_t new_size = merged.size();
+    std::vector<std::vector<int>> new_history(new_size);
+    std::vector<std::vector<int>> new_batch(new_size);
 
-    std::vector<int> neg_sources;
-    std::vector<int> neg_targets;
+    // Walk through old and merged arrays to map old positions to new positions.
+    size_t old_idx = 0;
+    for (size_t new_idx = 0; new_idx < new_size; ++new_idx) {
+        if (old_idx < all_nodes_sorted_.size() && all_nodes_sorted_[old_idx] == merged[new_idx]) {
+            new_history[new_idx] = std::move(history_neighbors_[old_idx]);
+            // batch_neighbors_ for old nodes stay empty (will be rebuilt)
+            ++old_idx;
+        }
+    }
 
-    // 4. Process each timestamp batch
-    for (const auto& [batch_timestamp, batch] : ts_batches) {
-        std::vector<int> batch_srcs, batch_dsts;
-        for (const auto&[src, tgt] : batch) {
-            batch_srcs.push_back(src);
-            batch_dsts.push_back(tgt);
+    all_nodes_sorted_ = std::move(merged);
+    history_neighbors_ = std::move(new_history);
+    batch_neighbors_ = std::move(new_batch);
+}
+
+void NegativeEdgeSampler::build_batch_neighbors() {
+    // Clear all batch neighbor lists.
+    for (auto& bn : batch_neighbors_) {
+        bn.clear();
+    }
+
+    const size_t batch_size = batch_sources_.size();
+    for (size_t i = 0; i < batch_size; ++i) {
+        const int src = batch_sources_[i];
+        const int tgt = batch_targets_[i];
+
+        const int src_idx = node_index(src);
+        const int tgt_idx = node_index(tgt);
+
+        batch_neighbors_[src_idx].push_back(tgt);
+        if (!is_directed_) {
+            batch_neighbors_[tgt_idx].push_back(src);
+        }
+    }
+
+    // Sort and deduplicate each non-empty list.
+    for (auto& bn : batch_neighbors_) {
+        if (!bn.empty()) {
+            std::sort(bn.begin(), bn.end());
+            bn.erase(std::unique(bn.begin(), bn.end()), bn.end());
+        }
+    }
+}
+
+void NegativeEdgeSampler::update_history() {
+    const size_t n = all_nodes_sorted_.size();
+    for (size_t i = 0; i < n; ++i) {
+        if (batch_neighbors_[i].empty()) continue;
+
+        if (history_neighbors_[i].empty()) {
+            history_neighbors_[i] = std::move(batch_neighbors_[i]);
+        } else {
+            // Sorted merge (union) of history and batch neighbors.
+            std::vector<int> merged;
+            merged.reserve(history_neighbors_[i].size() + batch_neighbors_[i].size());
+            std::set_union(
+                history_neighbors_[i].begin(), history_neighbors_[i].end(),
+                batch_neighbors_[i].begin(), batch_neighbors_[i].end(),
+                std::back_inserter(merged));
+            history_neighbors_[i] = std::move(merged);
+        }
+    }
+}
+
+// ============================================================================
+// Skip-over algorithm
+// ============================================================================
+
+int NegativeEdgeSampler::skip_over(
+    const int raw_index,
+    const std::vector<int>& exclude_positions_sorted) const {
+
+    // Map a virtual index (into the complement set) to an actual index
+    // in all_nodes_sorted_, skipping positions in exclude_positions_sorted.
+    //
+    // exclude_positions_sorted contains indices into all_nodes_sorted_ that
+    // are excluded. They are sorted in ascending order.
+    //
+    // Algorithm: iteratively adjust by counting how many excluded positions
+    // fall at or before our adjusted position. Uses binary search for efficiency.
+
+    int adjusted = raw_index;
+    size_t lo = 0;
+    const size_t d = exclude_positions_sorted.size();
+
+    while (lo < d) {
+        // Find how many excluded positions are <= adjusted, starting from lo.
+        auto it = std::upper_bound(
+            exclude_positions_sorted.begin() + static_cast<long>(lo),
+            exclude_positions_sorted.end(),
+            adjusted);
+        const size_t hi = static_cast<size_t>(it - exclude_positions_sorted.begin());
+        const size_t skips = hi - lo;
+
+        if (skips == 0) break;
+
+        adjusted += static_cast<int>(skips);
+        lo = hi;
+    }
+
+    return all_nodes_sorted_[adjusted];
+}
+
+// ============================================================================
+// Sampling methods
+// ============================================================================
+
+std::vector<int> NegativeEdgeSampler::sample_random_negatives(
+    const int src_idx, const int count, std::mt19937& rng) const {
+
+    if (count <= 0) return {};
+
+    const int src_node = all_nodes_sorted_[src_idx];
+    const int N = static_cast<int>(all_nodes_sorted_.size());
+
+    // Build combined exclusion set: history_neighbors UNION batch_neighbors UNION {self}.
+    // All three are sorted, so we merge them.
+    const auto& hist = history_neighbors_[src_idx];
+    const auto& batch = batch_neighbors_[src_idx];
+
+    // Merge hist and batch.
+    std::vector<int> combined_exclude;
+    combined_exclude.reserve(hist.size() + batch.size() + 1);
+    std::set_union(hist.begin(), hist.end(),
+                   batch.begin(), batch.end(),
+                   std::back_inserter(combined_exclude));
+
+    // Insert self into the sorted exclusion set.
+    auto self_pos = std::lower_bound(combined_exclude.begin(), combined_exclude.end(), src_node);
+    if (self_pos == combined_exclude.end() || *self_pos != src_node) {
+        combined_exclude.insert(self_pos, src_node);
+    }
+
+    const int d = static_cast<int>(combined_exclude.size());
+    const int valid_count = N - d;
+
+    std::vector<int> result(count, -1);
+
+    if (valid_count <= 0) return result;
+
+    // Precompute positions of excluded nodes in all_nodes_sorted_.
+    // Since both are sorted, we can do this with a merge-walk in O(d + N) worst case,
+    // but binary search is O(d * log N) and simpler.
+    std::vector<int> exclude_positions;
+    exclude_positions.reserve(d);
+    for (const int node : combined_exclude) {
+        const int idx = node_index(node);
+        if (idx >= 0) {
+            exclude_positions.push_back(idx);
+        }
+    }
+    // exclude_positions is already sorted since combined_exclude is sorted
+    // and all_nodes_sorted_ is sorted, preserving order.
+
+    // Sample with replacement.
+    std::uniform_int_distribution<int> dist(0, valid_count - 1);
+    for (int j = 0; j < count; ++j) {
+        const int raw = dist(rng);
+        result[j] = skip_over(raw, exclude_positions);
+    }
+
+    return result;
+}
+
+std::vector<int> NegativeEdgeSampler::sample_historical_negatives(
+    const int src_idx, const int count, std::mt19937& rng) const {
+
+    if (count <= 0) return {};
+
+    const auto& hist = history_neighbors_[src_idx];
+    const auto& batch = batch_neighbors_[src_idx];
+
+    // Historical candidates = history_neighbors MINUS batch_neighbors.
+    // Both are sorted, so use set_difference.
+    std::vector<int> candidates;
+    candidates.reserve(hist.size());
+    std::set_difference(hist.begin(), hist.end(),
+                        batch.begin(), batch.end(),
+                        std::back_inserter(candidates));
+
+    if (candidates.empty()) return {};
+
+    // Sample with replacement.
+    std::uniform_int_distribution<int> dist(0, static_cast<int>(candidates.size()) - 1);
+    std::vector<int> result(count);
+    for (int j = 0; j < count; ++j) {
+        result[j] = candidates[dist(rng)];
+    }
+
+    return result;
+}
+
+// ============================================================================
+// Public API
+// ============================================================================
+
+void NegativeEdgeSampler::add_batch(
+    const std::vector<int>& sources,
+    const std::vector<int>& targets,
+    const std::vector<int64_t>& /*timestamps*/) {
+
+    // Store batch edges.
+    batch_sources_ = sources;
+    batch_targets_ = targets;
+
+    // Collect unique nodes from this batch, sorted and deduped.
+    std::vector<int> new_nodes;
+    new_nodes.reserve(sources.size() + targets.size());
+    new_nodes.insert(new_nodes.end(), sources.begin(), sources.end());
+    new_nodes.insert(new_nodes.end(), targets.begin(), targets.end());
+    std::sort(new_nodes.begin(), new_nodes.end());
+    new_nodes.erase(std::unique(new_nodes.begin(), new_nodes.end()), new_nodes.end());
+
+    // Merge new nodes into global sorted node list.
+    merge_new_nodes(new_nodes);
+
+    // Build per-node neighbor lists for the current batch.
+    build_batch_neighbors();
+}
+
+NegativeSampleResult NegativeEdgeSampler::sample_negatives() {
+    const size_t batch_size = batch_sources_.size();
+    const size_t total_negatives = batch_size * num_negatives_per_positive_;
+
+    NegativeSampleResult result;
+    result.sources.resize(total_negatives);
+    result.targets.resize(total_negatives, -1);
+    result.num_historical_actual = 0;
+    result.num_random_actual = 0;
+
+    if (batch_size == 0) {
+        update_history();
+        ++batch_count_;
+        return result;
+    }
+
+    // Compute split.
+    int hist_k = static_cast<int>(num_negatives_per_positive_ * historical_negative_percentage_);
+    int rand_k = num_negatives_per_positive_ - hist_k;
+
+    // First batch: no history available.
+    if (batch_count_ == 0) {
+        hist_k = 0;
+        rand_k = num_negatives_per_positive_;
+    }
+
+    int total_hist = 0;
+    int total_rand = 0;
+
+    for (size_t i = 0; i < batch_size; ++i) {
+        const int src = batch_sources_[i];
+        const int src_idx = node_index(src);
+        const size_t base = i * num_negatives_per_positive_;
+
+        // Fill source column.
+        for (int j = 0; j < num_negatives_per_positive_; ++j) {
+            result.sources[base + j] = src;
         }
 
-        auto [batch_negs_srcs, batch_negs_dsts] =
-            sampler.sample_negative_edges_per_batch(
-                batch_srcs,
-                batch_dsts,
-                batch_timestamp,
-                num_negatives_per_positive,
-                historical_negative_percentage);
+        int offset = 0;
 
-        neg_sources.insert(neg_sources.end(), batch_negs_srcs.begin(), batch_negs_srcs.end());
-        neg_targets.insert(neg_targets.end(), batch_negs_dsts.begin(), batch_negs_dsts.end());
+        // Sample historical negatives.
+        std::vector<int> hist_samples = sample_historical_negatives(src_idx, hist_k, rng_);
+        const int hist_got = static_cast<int>(hist_samples.size());
+        for (int j = 0; j < hist_got; ++j) {
+            result.targets[base + offset] = hist_samples[j];
+            ++offset;
+        }
+        total_hist += hist_got;
+
+        // If historical returned fewer than requested, add the shortfall to random.
+        const int extra_rand = hist_k - hist_got;
+        const int actual_rand_k = rand_k + extra_rand;
+
+        // Sample random negatives.
+        std::vector<int> rand_samples = sample_random_negatives(src_idx, actual_rand_k, rng_);
+        for (int j = 0; j < static_cast<int>(rand_samples.size()); ++j) {
+            if (rand_samples[j] != -1) {
+                result.targets[base + offset] = rand_samples[j];
+                ++total_rand;
+            }
+            ++offset;
+        }
+
+        // Remaining slots (if any) stay as -1 sentinel.
     }
 
-    return {neg_sources, neg_targets};
+    result.num_historical_actual = total_hist;
+    result.num_random_actual = total_rand;
+
+    // Merge batch into history.
+    update_history();
+    total_edges_ += batch_sources_.size();
+    ++batch_count_;
+
+    return result;
+}
+
+// ============================================================================
+// Getters
+// ============================================================================
+
+size_t NegativeEdgeSampler::get_node_count() const {
+    return all_nodes_sorted_.size();
+}
+
+size_t NegativeEdgeSampler::get_edge_count() const {
+    return total_edges_;
+}
+
+size_t NegativeEdgeSampler::get_batch_count() const {
+    return batch_count_;
 }
