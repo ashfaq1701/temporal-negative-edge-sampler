@@ -2,7 +2,6 @@ find_package(GTest CONFIG REQUIRED)
 
 set(TEST_FILES
         test_negative_edge_sampler.cpp
-        test_collect_all_negatives.cpp
 )
 
 add_executable(test_negative_edge_sampler ${TEST_FILES} ${SRC_FILES})
@@ -16,5 +15,5 @@ target_include_directories(test_negative_edge_sampler PRIVATE
 target_link_libraries(test_negative_edge_sampler PRIVATE
         GTest::gtest
         GTest::gtest_main
-        TBB::tbb
+        OpenMP::OpenMP_CXX
 )

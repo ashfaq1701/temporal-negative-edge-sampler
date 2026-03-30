@@ -15,7 +15,7 @@ RUN dnf -y install epel-release && \
         ca-certificates gnupg \
         sudo which \
         dnf-plugins-core \
-        tbb tbb-devel && \
+        libgomp && \
     dnf clean all
 
 # Install Python 3.8-3.11 from source

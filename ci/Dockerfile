@@ -10,7 +10,7 @@ RUN apt-get update && \
         cmake \
         curl \
         git \
-        libtbb-dev \
+        libomp-dev \
         ninja-build \
         pkg-config \
         python3 \
