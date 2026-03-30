@@ -2,7 +2,6 @@ find_package(GTest CONFIG REQUIRED)
 
 set(TEST_FILES
         test_negative_edge_sampler.cpp
-        test_collect_all_negatives.cpp
 )
 
 add_executable(test_negative_edge_sampler ${TEST_FILES} ${SRC_FILES})

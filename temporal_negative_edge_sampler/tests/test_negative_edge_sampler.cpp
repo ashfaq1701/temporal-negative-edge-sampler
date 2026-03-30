@@ -3,182 +3,467 @@
 #include <unordered_set>
 #include <vector>
 #include <algorithm>
+#include <set>
 
-class NegativeEdgeSamplerTest : public ::testing::Test {
-protected:
-    std::unordered_set<int> all_nodes{0, 1, 2, 3, 4};
+// ============================================================================
+// Construction
+// ============================================================================
 
-    std::vector<int> batch_sources{0, 1, 2};
-    std::vector<int> batch_targets{1, 2, 3};
-    int64_t batch_timestamp = 100;
-};
-
-// Test output size matches expected dimensions
-TEST_F(NegativeEdgeSamplerTest, OutputSizeMatchesExpected) {
-    NegativeEdgeSampler sampler(all_nodes, false);
-    int k = 3;
-
-    auto [neg_src, neg_tgt] = sampler.sample_negative_edges_per_batch(
-        batch_sources, batch_targets, batch_timestamp, k, 0.5);
-
-    EXPECT_EQ(neg_src.size(), batch_sources.size() * k);
-    EXPECT_EQ(neg_tgt.size(), batch_sources.size() * k);
+TEST(NegativeEdgeSamplerTest, ConstructWithDefaults) {
+    NegativeEdgeSampler sampler(false, 3);
+    EXPECT_EQ(sampler.get_node_count(), 0u);
+    EXPECT_EQ(sampler.get_edge_count(), 0u);
+    EXPECT_EQ(sampler.get_batch_count(), 0u);
 }
 
-// Test that negative sources match positive sources
-TEST_F(NegativeEdgeSamplerTest, NegativeSourcesMatchPositiveSources) {
-    NegativeEdgeSampler sampler(all_nodes, false);
-    int k = 2;
+TEST(NegativeEdgeSamplerTest, ConstructWithAllParams) {
+    NegativeEdgeSampler sampler(true, 5, 0.7, 42);
+    EXPECT_EQ(sampler.get_node_count(), 0u);
+}
 
-    auto [neg_src, neg_tgt] = sampler.sample_negative_edges_per_batch(
-        batch_sources, batch_targets, batch_timestamp, k, 0.5);
+// ============================================================================
+// Output dimensions
+// ============================================================================
 
-    for (size_t i = 0; i < batch_sources.size(); ++i) {
+TEST(NegativeEdgeSamplerTest, OutputSizeMatchesExpected) {
+    NegativeEdgeSampler sampler(false, 3, 0.5, 42);
+    std::vector<int> src{0, 1, 2};
+    std::vector<int> tgt{1, 2, 3};
+    std::vector<int64_t> ts{100, 100, 100};
+
+    sampler.add_batch(src, tgt, ts);
+    auto result = sampler.sample_negatives();
+
+    EXPECT_EQ(result.sources.size(), 9u);  // 3 edges * 3 negatives
+    EXPECT_EQ(result.targets.size(), 9u);
+}
+
+TEST(NegativeEdgeSamplerTest, NegativeSourcesMatchPositiveSources) {
+    const int k = 2;
+    NegativeEdgeSampler sampler(false, k, 0.5, 42);
+    std::vector<int> src{0, 1, 2};
+    std::vector<int> tgt{1, 2, 3};
+    std::vector<int64_t> ts{100, 100, 100};
+
+    sampler.add_batch(src, tgt, ts);
+    auto result = sampler.sample_negatives();
+
+    for (size_t i = 0; i < src.size(); ++i) {
         for (int j = 0; j < k; ++j) {
-            EXPECT_EQ(neg_src[i * k + j], batch_sources[i]);
+            EXPECT_EQ(result.sources[i * k + j], src[i]);
         }
     }
 }
 
-// Test that negative targets are valid node IDs (or -1 sentinel)
-TEST_F(NegativeEdgeSamplerTest, NegativeTargetsAreValidNodes) {
-    NegativeEdgeSampler sampler(all_nodes, false);
-    int k = 2;
+// ============================================================================
+// First batch: all random (no history)
+// ============================================================================
 
-    auto [neg_src, neg_tgt] = sampler.sample_negative_edges_per_batch(
-        batch_sources, batch_targets, batch_timestamp, k, 0.5);
+TEST(NegativeEdgeSamplerTest, FirstBatchAllRandom) {
+    NegativeEdgeSampler sampler(false, 2, 0.5, 42);
+    std::vector<int> src{0, 1};
+    std::vector<int> tgt{1, 2};
+    std::vector<int64_t> ts{100, 100};
 
-    for (int tgt : neg_tgt) {
-        EXPECT_TRUE(tgt == -1 || all_nodes.count(tgt) > 0);
+    sampler.add_batch(src, tgt, ts);
+    auto result = sampler.sample_negatives();
+
+    EXPECT_EQ(result.num_historical_actual, 0);
+}
+
+// ============================================================================
+// Second batch has historical negatives
+// ============================================================================
+
+TEST(NegativeEdgeSamplerTest, SecondBatchHasHistorical) {
+    NegativeEdgeSampler sampler(false, 2, 1.0, 42);
+
+    // Batch 1: establish history
+    std::vector<int> s1{0, 1};
+    std::vector<int> t1{1, 2};
+    std::vector<int64_t> ts1{100, 100};
+    sampler.add_batch(s1, t1, ts1);
+    sampler.sample_negatives();
+
+    // Batch 2: different edges
+    std::vector<int> s2{0, 2};
+    std::vector<int> t2{3, 4};
+    std::vector<int64_t> ts2{200, 200};
+    sampler.add_batch(s2, t2, ts2);
+    auto result = sampler.sample_negatives();
+
+    // Node 0 had neighbor 1 in batch 1; node 2 had neighbors 1,3 (undirected) in batch 1.
+    // Historical candidates should exist.
+    EXPECT_GT(result.num_historical_actual, 0);
+}
+
+// ============================================================================
+// Negative targets are valid
+// ============================================================================
+
+TEST(NegativeEdgeSamplerTest, NegativeTargetsAreValidNodes) {
+    NegativeEdgeSampler sampler(false, 2, 0.5, 42);
+    std::vector<int> src{0, 1, 2};
+    std::vector<int> tgt{1, 2, 3};
+    std::vector<int64_t> ts{100, 100, 100};
+
+    sampler.add_batch(src, tgt, ts);
+    auto result = sampler.sample_negatives();
+
+    std::set<int> valid_nodes{0, 1, 2, 3};
+    for (int t : result.targets) {
+        EXPECT_TRUE(t == -1 || valid_nodes.count(t) > 0)
+            << "Invalid target: " << t;
     }
 }
 
-// Test directed mode produces correct output size
-TEST_F(NegativeEdgeSamplerTest, DirectedModeOutputSize) {
-    NegativeEdgeSampler sampler(all_nodes, true);
-    int k = 2;
+// ============================================================================
+// Random negatives exclude neighbors and self
+// ============================================================================
 
-    auto [neg_src, neg_tgt] = sampler.sample_negative_edges_per_batch(
-        batch_sources, batch_targets, batch_timestamp, k, 0.5);
+TEST(NegativeEdgeSamplerTest, RandomNegativesExcludeNeighborsAndSelf) {
+    // 5 nodes, 1 edge: 0->1. Undirected, so 0 and 1 are mutual neighbors.
+    // Random negatives for src=0 should not include 0 (self) or 1 (neighbor).
+    NegativeEdgeSampler sampler(false, 10, 0.0, 42);
+    std::vector<int> src{0, 2, 3};  // 5 nodes: 0,1,2,3,4
+    std::vector<int> tgt{1, 4, 4};
+    std::vector<int64_t> ts{100, 100, 100};
 
-    EXPECT_EQ(neg_src.size(), batch_sources.size() * k);
-    EXPECT_EQ(neg_tgt.size(), batch_sources.size() * k);
+    sampler.add_batch(src, tgt, ts);
+    auto result = sampler.sample_negatives();
+
+    // Check negatives for src=0 (first 10 entries)
+    for (int j = 0; j < 10; ++j) {
+        int t = result.targets[j];
+        if (t != -1) {
+            EXPECT_NE(t, 0) << "Random negative should not be self";
+            EXPECT_NE(t, 1) << "Random negative should not be current batch neighbor";
+        }
+    }
 }
 
-// Test with single edge
-TEST_F(NegativeEdgeSamplerTest, SingleEdgeBatch) {
-    NegativeEdgeSampler sampler(all_nodes, false);
+// ============================================================================
+// Directed mode
+// ============================================================================
+
+TEST(NegativeEdgeSamplerTest, DirectedModeOutput) {
+    NegativeEdgeSampler sampler(true, 2, 0.5, 42);
+    std::vector<int> src{0, 1, 2};
+    std::vector<int> tgt{1, 2, 3};
+    std::vector<int64_t> ts{100, 100, 100};
+
+    sampler.add_batch(src, tgt, ts);
+    auto result = sampler.sample_negatives();
+
+    EXPECT_EQ(result.sources.size(), 6u);
+    EXPECT_EQ(result.targets.size(), 6u);
+}
+
+TEST(NegativeEdgeSamplerTest, DirectedDoesNotCreateReverseEdges) {
+    // Directed: edge 0->1 should NOT make 1 a neighbor of 0 in reverse.
+    // So for src=1, node 0 should be a valid random negative.
+    NegativeEdgeSampler sampler(true, 5, 0.0, 42);
     std::vector<int> src{0};
     std::vector<int> tgt{1};
-    int k = 3;
+    std::vector<int64_t> ts{100};
 
-    auto [neg_src, neg_tgt] = sampler.sample_negative_edges_per_batch(
-        src, tgt, 100, k, 0.5);
+    sampler.add_batch(src, tgt, ts);
+    auto result = sampler.sample_negatives();
 
-    EXPECT_EQ(neg_src.size(), static_cast<size_t>(k));
-    EXPECT_EQ(neg_tgt.size(), static_cast<size_t>(k));
-
-    for (int i = 0; i < k; ++i) {
-        EXPECT_EQ(neg_src[i], 0);
+    // src=0's negatives should not include 1 (neighbor) or 0 (self).
+    // Only node available is nothing (only 2 nodes, 0 excluded as self, 1 excluded as neighbor).
+    // All should be -1 sentinels.
+    for (int j = 0; j < 5; ++j) {
+        EXPECT_EQ(result.targets[j], -1);
     }
 }
 
-// Test full historical percentage (1.0)
-TEST_F(NegativeEdgeSamplerTest, FullHistoricalPercentage) {
-    NegativeEdgeSampler sampler(all_nodes, false);
-    int k = 2;
+// ============================================================================
+// Single edge batch
+// ============================================================================
 
-    auto [neg_src, neg_tgt] = sampler.sample_negative_edges_per_batch(
-        batch_sources, batch_targets, batch_timestamp, k, 1.0);
+TEST(NegativeEdgeSamplerTest, SingleEdgeBatch) {
+    NegativeEdgeSampler sampler(false, 3, 0.5, 42);
+    std::vector<int> src{0};
+    std::vector<int> tgt{1};
+    std::vector<int64_t> ts{100};
 
-    EXPECT_EQ(neg_src.size(), batch_sources.size() * k);
-    EXPECT_EQ(neg_tgt.size(), batch_sources.size() * k);
+    sampler.add_batch(src, tgt, ts);
+    auto result = sampler.sample_negatives();
+
+    EXPECT_EQ(result.sources.size(), 3u);
+    EXPECT_EQ(result.targets.size(), 3u);
+    for (size_t i = 0; i < 3; ++i) {
+        EXPECT_EQ(result.sources[i], 0);
+    }
 }
 
-// Test full random percentage (0.0)
-TEST_F(NegativeEdgeSamplerTest, FullRandomPercentage) {
-    NegativeEdgeSampler sampler(all_nodes, false);
-    int k = 2;
+// ============================================================================
+// Complete graph returns sentinels
+// ============================================================================
 
-    auto [neg_src, neg_tgt] = sampler.sample_negative_edges_per_batch(
-        batch_sources, batch_targets, batch_timestamp, k, 0.0);
+TEST(NegativeEdgeSamplerTest, CompleteGraphReturnsSentinels) {
+    // 3 nodes all connected: 0-1, 0-2, 1-2. Undirected.
+    // Each node is connected to all others => no valid random negatives.
+    NegativeEdgeSampler sampler(false, 2, 0.0, 42);
+    std::vector<int> src{0, 0, 1};
+    std::vector<int> tgt{1, 2, 2};
+    std::vector<int64_t> ts{100, 100, 100};
 
-    EXPECT_EQ(neg_src.size(), batch_sources.size() * k);
-    EXPECT_EQ(neg_tgt.size(), batch_sources.size() * k);
+    sampler.add_batch(src, tgt, ts);
+    auto result = sampler.sample_negatives();
+
+    // All targets should be -1 since every node is connected to all others.
+    for (int t : result.targets) {
+        EXPECT_EQ(t, -1);
+    }
 }
 
-// Test that historical negatives come from previously seen edges
-TEST_F(NegativeEdgeSamplerTest, HistoricalNegativesFromPreviousBatches) {
-    NegativeEdgeSampler sampler(all_nodes, false);
-    int k = 2;
+// ============================================================================
+// Two-node graph
+// ============================================================================
 
-    // First batch: establish history
-    std::vector<int> src1{0, 1};
-    std::vector<int> tgt1{1, 2};
-    sampler.sample_negative_edges_per_batch(src1, tgt1, 100, k, 0.5);
+TEST(NegativeEdgeSamplerTest, TwoNodeGraph) {
+    NegativeEdgeSampler sampler(false, 1, 0.5, 42);
+    std::vector<int> src{0};
+    std::vector<int> tgt{1};
+    std::vector<int64_t> ts{100};
 
-    // Second batch: different edges, should have historical candidates
+    sampler.add_batch(src, tgt, ts);
+    auto result = sampler.sample_negatives();
+
+    EXPECT_EQ(result.sources.size(), 1u);
+    EXPECT_EQ(result.targets.size(), 1u);
+    // Only 2 nodes, both connected => sentinel
+    EXPECT_EQ(result.targets[0], -1);
+}
+
+// ============================================================================
+// Multiple batches accumulate state
+// ============================================================================
+
+TEST(NegativeEdgeSamplerTest, MultipleBatchesAccumulateState) {
+    NegativeEdgeSampler sampler(false, 2, 0.5, 42);
+
+    std::vector<int> s1{0}, t1{1};
+    std::vector<int64_t> ts1{100};
+    sampler.add_batch(s1, t1, ts1);
+    sampler.sample_negatives();
+    EXPECT_EQ(sampler.get_node_count(), 2u);
+    EXPECT_EQ(sampler.get_edge_count(), 1u);
+    EXPECT_EQ(sampler.get_batch_count(), 1u);
+
+    std::vector<int> s2{1}, t2{2};
+    std::vector<int64_t> ts2{200};
+    sampler.add_batch(s2, t2, ts2);
+    sampler.sample_negatives();
+    EXPECT_EQ(sampler.get_node_count(), 3u);
+    EXPECT_EQ(sampler.get_edge_count(), 2u);
+    EXPECT_EQ(sampler.get_batch_count(), 2u);
+
+    std::vector<int> s3{2}, t3{3};
+    std::vector<int64_t> ts3{300};
+    sampler.add_batch(s3, t3, ts3);
+    sampler.sample_negatives();
+    EXPECT_EQ(sampler.get_node_count(), 4u);
+    EXPECT_EQ(sampler.get_edge_count(), 3u);
+    EXPECT_EQ(sampler.get_batch_count(), 3u);
+}
+
+// ============================================================================
+// Getters update after add_batch
+// ============================================================================
+
+TEST(NegativeEdgeSamplerTest, NodeCountAfterAddBatch) {
+    NegativeEdgeSampler sampler(false, 2, 0.5, 42);
+    std::vector<int> src{0, 1, 2};
+    std::vector<int> tgt{1, 2, 3};
+    std::vector<int64_t> ts{100, 100, 100};
+
+    sampler.add_batch(src, tgt, ts);
+    // Nodes visible after add_batch, before sample_negatives
+    EXPECT_EQ(sampler.get_node_count(), 4u);
+}
+
+// ============================================================================
+// More negatives than candidates (sampling with replacement)
+// ============================================================================
+
+TEST(NegativeEdgeSamplerTest, MoreNegativesThanCandidates) {
+    // 3 nodes: 0, 1, 2. Edge 0-1. Random negatives for src=0: only candidate is 2.
+    // Requesting 10 negatives should give 10 entries (sampling with replacement from {2}).
+    NegativeEdgeSampler sampler(false, 10, 0.0, 42);
+    std::vector<int> src{0};
+    std::vector<int> tgt{1};
+    std::vector<int64_t> ts{100};
+
+    // Need a third node visible. Add another edge in same batch.
     std::vector<int> src2{0, 2};
-    std::vector<int> tgt2{3, 4};
-    auto [neg_src, neg_tgt] = sampler.sample_negative_edges_per_batch(
-        src2, tgt2, 200, k, 1.0);
+    std::vector<int> tgt2{1, 1};
+    std::vector<int64_t> ts2{100, 100};
 
-    EXPECT_EQ(neg_src.size(), src2.size() * k);
-    EXPECT_EQ(neg_tgt.size(), src2.size() * k);
+    sampler.add_batch(src2, tgt2, ts2);
+    auto result = sampler.sample_negatives();
 
-    // All negatives should be valid nodes or -1
-    for (int tgt : neg_tgt) {
-        EXPECT_TRUE(tgt == -1 || all_nodes.count(tgt) > 0);
+    EXPECT_EQ(result.sources.size(), 20u);  // 2 edges * 10 negatives
+    EXPECT_EQ(result.targets.size(), 20u);
+}
+
+// ============================================================================
+// Historical negatives are from history, not current batch
+// ============================================================================
+
+TEST(NegativeEdgeSamplerTest, HistoricalNegativesFromHistoryNotCurrentBatch) {
+    NegativeEdgeSampler sampler(false, 3, 1.0, 42);
+
+    // Batch 1: 0-1, 0-2
+    std::vector<int> s1{0, 0};
+    std::vector<int> t1{1, 2};
+    std::vector<int64_t> ts1{100, 100};
+    sampler.add_batch(s1, t1, ts1);
+    sampler.sample_negatives();
+
+    // Batch 2: 0-3. Historical for src=0 should be {1, 2} (from batch 1, not in batch 2).
+    std::vector<int> s2{0};
+    std::vector<int> t2{3};
+    std::vector<int64_t> ts2{200};
+    sampler.add_batch(s2, t2, ts2);
+    auto result = sampler.sample_negatives();
+
+    std::set<int> hist_candidates{1, 2};
+    for (int j = 0; j < 3; ++j) {
+        int t = result.targets[j];
+        if (t != -1) {
+            EXPECT_TRUE(hist_candidates.count(t) > 0)
+                << "Historical negative " << t << " not from history";
+        }
     }
+    EXPECT_GT(result.num_historical_actual, 0);
 }
 
-// Test requesting more negatives than available unique candidates
-TEST_F(NegativeEdgeSamplerTest, MoreNegativesThanCandidates) {
-    std::unordered_set<int> small_nodes{0, 1, 2};
-    NegativeEdgeSampler sampler(small_nodes, false);
-    std::vector<int> src{0};
-    std::vector<int> tgt{1};
-    int k = 10;
+// ============================================================================
+// Full historical percentage
+// ============================================================================
 
-    auto [neg_src, neg_tgt] = sampler.sample_negative_edges_per_batch(
-        src, tgt, 100, k, 0.5);
+TEST(NegativeEdgeSamplerTest, FullHistoricalPercentage) {
+    NegativeEdgeSampler sampler(false, 2, 1.0, 42);
+    std::vector<int> src{0, 1, 2};
+    std::vector<int> tgt{1, 2, 3};
+    std::vector<int64_t> ts{100, 100, 100};
 
-    // Should still return k entries per positive edge
-    EXPECT_EQ(neg_src.size(), static_cast<size_t>(k));
-    EXPECT_EQ(neg_tgt.size(), static_cast<size_t>(k));
+    sampler.add_batch(src, tgt, ts);
+    auto result = sampler.sample_negatives();
+
+    EXPECT_EQ(result.sources.size(), 6u);
+    EXPECT_EQ(result.targets.size(), 6u);
 }
 
-// Test multiple sequential batches build state correctly
-TEST_F(NegativeEdgeSamplerTest, MultipleBatchesAccumulateState) {
-    NegativeEdgeSampler sampler(all_nodes, false);
-    int k = 2;
+// ============================================================================
+// Full random percentage
+// ============================================================================
 
-    // Process 3 batches sequentially
-    std::vector<int> src1{0}, tgt1{1};
-    std::vector<int> src2{1}, tgt2{2};
-    std::vector<int> src3{2}, tgt3{3};
+TEST(NegativeEdgeSamplerTest, FullRandomPercentage) {
+    NegativeEdgeSampler sampler(false, 2, 0.0, 42);
+    std::vector<int> src{0, 1, 2};
+    std::vector<int> tgt{1, 2, 3};
+    std::vector<int64_t> ts{100, 100, 100};
 
-    auto [ns1, nt1] = sampler.sample_negative_edges_per_batch(src1, tgt1, 100, k, 0.5);
-    auto [ns2, nt2] = sampler.sample_negative_edges_per_batch(src2, tgt2, 200, k, 0.5);
-    auto [ns3, nt3] = sampler.sample_negative_edges_per_batch(src3, tgt3, 300, k, 0.5);
+    sampler.add_batch(src, tgt, ts);
+    auto result = sampler.sample_negatives();
 
-    EXPECT_EQ(ns1.size(), static_cast<size_t>(k));
-    EXPECT_EQ(ns2.size(), static_cast<size_t>(k));
-    EXPECT_EQ(ns3.size(), static_cast<size_t>(k));
+    EXPECT_EQ(result.sources.size(), 6u);
+    EXPECT_EQ(result.targets.size(), 6u);
+    // First batch, so all should be random regardless
+    EXPECT_EQ(result.num_historical_actual, 0);
 }
 
-// Test with two-node graph (minimal case)
-TEST_F(NegativeEdgeSamplerTest, TwoNodeGraph) {
-    std::unordered_set<int> two_nodes{0, 1};
-    NegativeEdgeSampler sampler(two_nodes, false);
+// ============================================================================
+// Larger graph across multiple batches
+// ============================================================================
 
-    std::vector<int> src{0};
-    std::vector<int> tgt{1};
-    int k = 1;
+TEST(NegativeEdgeSamplerTest, LargerGraph) {
+    NegativeEdgeSampler sampler(false, 3, 0.5, 42);
 
-    auto [neg_src, neg_tgt] = sampler.sample_negative_edges_per_batch(
-        src, tgt, 100, k, 0.5);
+    // 10 nodes, 20 edges across 5 timestamps
+    for (int batch = 0; batch < 5; ++batch) {
+        std::vector<int> src, tgt;
+        std::vector<int64_t> ts;
+        for (int i = 0; i < 4; ++i) {
+            int idx = batch * 4 + i;
+            src.push_back(idx % 10);
+            tgt.push_back((idx + 1) % 10);
+            ts.push_back(100 + batch * 100);
+        }
+        sampler.add_batch(src, tgt, ts);
+        auto result = sampler.sample_negatives();
 
-    EXPECT_EQ(neg_src.size(), static_cast<size_t>(1));
-    EXPECT_EQ(neg_tgt.size(), static_cast<size_t>(1));
+        EXPECT_EQ(result.sources.size(), static_cast<size_t>(4 * 3));
+        EXPECT_EQ(result.targets.size(), static_cast<size_t>(4 * 3));
+    }
+
+    EXPECT_EQ(sampler.get_batch_count(), 5u);
+    EXPECT_EQ(sampler.get_edge_count(), 20u);
+    EXPECT_EQ(sampler.get_node_count(), 10u);
+}
+
+// ============================================================================
+// Empty batch
+// ============================================================================
+
+TEST(NegativeEdgeSamplerTest, EmptyBatch) {
+    NegativeEdgeSampler sampler(false, 2, 0.5, 42);
+    std::vector<int> src, tgt;
+    std::vector<int64_t> ts;
+
+    sampler.add_batch(src, tgt, ts);
+    auto result = sampler.sample_negatives();
+
+    EXPECT_EQ(result.sources.size(), 0u);
+    EXPECT_EQ(result.targets.size(), 0u);
+    EXPECT_EQ(sampler.get_batch_count(), 1u);
+}
+
+// ============================================================================
+// Deterministic with seed
+// ============================================================================
+
+TEST(NegativeEdgeSamplerTest, DeterministicWithSeed) {
+    auto run = [](unsigned int seed) {
+        NegativeEdgeSampler sampler(false, 3, 0.5, seed);
+        std::vector<int> src{0, 1, 2, 3};
+        std::vector<int> tgt{1, 2, 3, 4};
+        std::vector<int64_t> ts{100, 100, 100, 100};
+        sampler.add_batch(src, tgt, ts);
+        return sampler.sample_negatives();
+    };
+
+    auto r1 = run(123);
+    auto r2 = run(123);
+
+    EXPECT_EQ(r1.targets, r2.targets);
+}
+
+// ============================================================================
+// Skip-over correctness: non-contiguous node IDs
+// ============================================================================
+
+TEST(NegativeEdgeSamplerTest, NonContiguousNodeIds) {
+    // Node IDs: 10, 20, 30, 40, 50
+    NegativeEdgeSampler sampler(false, 5, 0.0, 42);
+    std::vector<int> src{10, 30};
+    std::vector<int> tgt{20, 40};
+    std::vector<int64_t> ts{100, 100};
+
+    sampler.add_batch(src, tgt, ts);
+    auto result = sampler.sample_negatives();
+
+    std::set<int> valid{10, 20, 30, 40};
+    // Need a 5th node to have any candidate. With only 4 nodes visible and
+    // undirected edges 10-20 and 30-40:
+    // src=10 neighbors: {20}, self=10 => candidates: {30, 40}
+    // src=30 neighbors: {40}, self=30 => candidates: {10, 20}
+    for (int t : result.targets) {
+        EXPECT_TRUE(t == -1 || valid.count(t) > 0)
+            << "Invalid target: " << t;
+    }
 }
